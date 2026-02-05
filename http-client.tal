@@ -1,0 +1,41 @@
+( HTTP Client Example )
+|00 @System &vector $2 &wst $1 &rst $1 &eaddr $2 &ecode $2
+|10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+
+|0100 ( -> )
+    ;on-network .Network/vector DEO2
+    
+    ( Configure as TCP client )
+    #00 .Network/type DEO
+    
+    ( Set target host and port )
+    ;host .Network/host DEO2
+    #0050 .Network/port DEO2
+    
+    ( Connect )
+    #01 .Network/state DEO
+    
+BRK
+
+@on-network ( -> )
+    .Network/state DEI
+    
+    DUP #02 EQU ?&connected
+    
+    POP BRK
+    
+    &connected
+        ( Send HTTP request )
+        ( ;request string-length .Network/length DEO2 )
+        ;request .Network/write DEO2
+        
+        ( Read response )
+        #0200 .Network/length DEO2
+        ;response .Network/read DEO2
+        
+        POP BRK
+
+@host "httpbin.org $1
+@request "GET 20 "/ip 20 "HTTP/1.1 0d 0a "Host: 20 "httpbin.org 0d 0a 0d 0a $1
+@response $200

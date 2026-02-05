@@ -1,0 +1,46 @@
+( Echo Server Example )
+|00 @System &vector $2 &wst $1 &rst $1 &eaddr $2 &ecode $2
+|10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
+( vector: 00xa0-00xa1, state: 00xa2, type: 00xa3, host: 00xa4-00xa5, port: 00xa6-00xa7, length: 00xa8-00xa9, read: 00xaa-00xab, write: 00xac-00xad )
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+
+|0100 ( -> )
+    ( Set network callback )
+    ;on-network .Network/vector DEO2
+    
+    ( Configure as TCP server )
+    #01 .Network/type DEO
+    
+    ( Listen on port 9999 )
+    #270f .Network/port DEO2
+    
+    ( Start listening )
+    #02 .Network/state DEO
+    
+BRK
+
+@on-network ( -> )
+    .Network/state DEI
+    
+    DUP #03 EQU ?&accept-client
+    DUP #02 EQU ?&handle-client
+    
+    POP BRK
+    
+    &accept-client
+        #04 .Network/state DEO  ( Accept connection )
+        POP BRK
+        
+    &handle-client
+        ( Read data )
+      #0080 .Network/length DEO2 ( #0080 -> max length = 128 is stored in device address 00xa9 )
+        ;buffer .Network/read DEO2  ( buffer is read into device address 00xaa-00xab )
+        
+        ( Echo data back )
+        ( the below line was causing the length to be set to 0 instead of the actual length, so nothing was printing )
+        ( .Network/length DEI2 .Network/length DEO2 )
+        ;buffer .Network/write DEO2
+        
+        POP BRK
+
+@buffer $80 ( input from console )
