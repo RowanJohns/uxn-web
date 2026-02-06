@@ -1,0 +1,99 @@
+|00 @System &vector $2 &pad $6 &r $2 &g $2 &b $2
+|10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
+|20 @Screen &vector $2 &width $2 &height $2 &auto $1 &pad $1 &x $2 &y $2 &addr $2 &pixel $1 &sprite $1
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+
+( print a character to network output )
+%EMIT { .Console/write DEO } ( character -- )
+
+( print a newline )
+%NL { #0a EMIT } ( -- )
+
+( print a string stored at an address )
+%PRINT {
+    @loop
+        LDAk DUP ?{ POP NL !done }
+        EMIT
+        ;pointer LDA2k
+        INC2 SWP2 POP2 ADD2
+        ;pointer LDA2k SWP2 STA2
+        !loop
+    @pointer
+    0000
+    @done
+} ( address -- )
+
+%CHECK_CMD {
+    @while                  
+        LDAk DUP ?{         
+            POP POP2 POP2 #01 !finish }   
+        SWP POP SWP POP     
+        SWP ROT SWP         
+        LDAk DUP ?{         
+            POP POP2 POP2 #00 !finish }   
+        SWP POP SWP POP     
+        EQU ?{              
+            POP POP2 #00 !finish }  
+        ;counter LDA2k      
+        SWP2 POP2           
+        ;text ADD2          
+        ;counter LDA2k      
+        SWP2 POP2           
+        ;command ADD2       
+        ;counter LDA2k      
+        INC2 SWP2                   
+        STA2                
+        !while              
+
+    @counter
+    0001   
+} ( command text -- flag )
+
+|0100 ( -> )
+
+    ( Set network callback )
+    ;on-network .Network/vector DEO2
+    
+    ( Configure as TCP server )
+    #01 .Network/type DEO
+    
+    ( Listen on port 79 )
+    #004f .Network/port DEO2
+    
+    ( Start listening )
+    #02 .Network/state DEO
+
+BRK
+
+@on-network
+    .Network/state DEI
+    
+    DUP #03 EQU ?&accept-client
+    DUP #02 EQU ?&handle-client
+
+    POP BRK
+
+    &accept-client
+        #04 .Network/state DEO  ( Accept connection )
+        POP BRK
+
+    &handle-client
+        #0080 .Network/length DEO2
+        ;buffer .Network/read DEO2
+        ;buffer                 ( Push text pointer )
+        ;command                ( Push command pointer )
+        CHECK_CMD
+        @finish
+            ?{ BRK }
+            ( add code here to ping real server )
+
+    @text
+    "finger 20 "user 00
+
+    @command
+    "finger 00
+
+    @buffer $80
+
+    @response
+    "Hello 20 "from 20 "UXN 20 "box! 0a

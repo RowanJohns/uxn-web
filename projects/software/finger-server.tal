@@ -84,7 +84,7 @@ BRK
         ;command                ( Push command pointer )
         CHECK_CMD
         @finish
-        ?{ BRK }
+            ?{ BRK }
             #0014 .Network/length DEO2
             ;response .Network/write DEO2
             BRK
