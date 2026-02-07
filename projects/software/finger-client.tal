@@ -23,6 +23,7 @@
     @done
 } ( address -- )
 
+( check that text matches a command )
 %CHECK_CMD {
     @while                  
         LDAk DUP ?{         
@@ -54,46 +55,37 @@
     ( Set network callback )
     ;on-network .Network/vector DEO2
     
-    ( Configure as TCP server )
-    #01 .Network/type DEO
+    ( Configure as TCP client )
+    #00 .Network/type DEO
     
-    ( Listen on port 79 )
+    ( Set target host and port )
+    ;host .Network/host DEO2
+    ( port 79 for finger )
     #004f .Network/port DEO2
     
     ( Start listening )
-    #02 .Network/state DEO
+    #01 .Network/state DEO
 
 BRK
 
-@on-network
+@on-network ( -> )
     .Network/state DEI
     
-    DUP #03 EQU ?&accept-client
-    DUP #02 EQU ?&handle-client
-
+    DUP #02 EQU ?&connected
+    
     POP BRK
-
-    &accept-client
-        #04 .Network/state DEO  ( Accept connection )
+    
+    &connected
+        ( Send HTTP request )
+        ( ;request string-length .Network/length DEO2 )
+        ;request .Network/write DEO2
+        
+        ( Read response )
+        #0200 .Network/length DEO2
+        ;response .Network/read DEO2
+        
         POP BRK
 
-    &handle-client
-        #0080 .Network/length DEO2
-        ;buffer .Network/read DEO2
-        ;buffer                 ( Push text pointer )
-        ;command                ( Push command pointer )
-        CHECK_CMD
-        @finish
-            ?{ BRK }
-            ( add code here to ping real server )
-
-    @text
-    "finger 20 "user 00
-
-    @command
-    "finger 00
-
-    @buffer $80
-
-    @response
-    "Hello 20 "from 20 "UXN 20 "box! 0a
+@host "plan.cat $1
+@request "GET 20 "/ip 20 "HTTP/1.1 0d 0a "Host: 20 "plan.cat 0d 0a 0d 0a $1
+@response $200

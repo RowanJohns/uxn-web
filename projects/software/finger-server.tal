@@ -23,6 +23,7 @@
     @done
 } ( address -- )
 
+( check that text matches a command )
 %CHECK_CMD {
     @while                  
         LDAk DUP ?{         

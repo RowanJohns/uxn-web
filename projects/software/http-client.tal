@@ -33,7 +33,8 @@ BRK
         ( Read response )
         #0200 .Network/length DEO2
         ;response .Network/read DEO2
-        
+        ;response .Console/write DEO2
+
         POP BRK
 
 @host "httpbin.org $1
