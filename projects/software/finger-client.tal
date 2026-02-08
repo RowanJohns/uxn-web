@@ -77,8 +77,8 @@ BRK
     
     &connected
         ( Send HTTP request )
-        ( ;request string-length .Network/length DEO2 )
-        ;request .Network/write DEO2
+        #0008 .Network/length DEO2
+        ;query .Network/write DEO2
         
         ( Read response )
         #0200 .Network/length DEO2
@@ -87,5 +87,5 @@ BRK
         POP BRK
 
 @host "plan.cat $1
-@request "GET 20 "/ip 20 "HTTP/1.1 0d 0a "Host: 20 "plan.cat 0d 0a 0d 0a $1
+@query "wf 0d 0a
 @response $200
