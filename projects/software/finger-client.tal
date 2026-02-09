@@ -84,8 +84,9 @@ BRK
         #0200 .Network/length DEO2
         ;response .Network/read DEO2
         
+        ;response .Console/write DEO
         POP BRK
 
 @host "plan.cat $1
-@query "wf 0d 0a
+@query "mk 0d 0a $1
 @response $200

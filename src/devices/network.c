@@ -308,9 +308,9 @@ void network_deo(Uint8 addr) {
                 printf("[DEBUG] Read request: addr=0x%04x, max_len=%d, sockfd=%d, state=%d\n", 
                        read_addr, max_len, sockfd, net.state);
                 if (sockfd > 0 && net.state == NET_CONNECTED && max_len > 0) {
-                    printf("[DEBUG] Ready to recieve");
                     int bytes_read = recv(sockfd, &uxn.ram[read_addr], max_len, 0);
-                    printf("[DEBUG] read_addr: %x, recieved: %s", read_addr, &uxn.ram[read_addr]);
+                    /* print the response */
+                    printf("%s\n", &uxn.ram[read_addr]);
                     if (bytes_read < 0) {
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
                             printf("[DEBUG] Read error: %s\n", strerror(errno));
@@ -335,19 +335,12 @@ void network_deo(Uint8 addr) {
         case 0x0d: /* write address (low byte) - trigger write */
             {
                 Uint16 write_addr = (uxn.dev[addr - 1] << 8) | value;
-                printf("[DEBUG] start of write - a8: %d\n", uxn.dev[0xa8]);
-                printf("[DEBUG] start of write - a9: %d\n", uxn.dev[0xa9]);
-                Uint16 len = (uxn.dev[0xa8] << 8) | uxn.dev[0xa9];
                 int sockfd = net_get_socket();
-                
-                printf("[DEBUG] Write request: addr=0x%04x, len=%d, sockfd=%d, state=%d\n", 
+                size_t len = strlen(&uxn.ram[write_addr]);
+                printf("[DEBUG] Write request: addr=0x%04x, len=%zu, sockfd=%d, state=%d\n", 
                        write_addr, len, sockfd, net.state);
                 if (sockfd > 0 && net.state == NET_CONNECTED && len > 0) {
-                    printf("[DEBUG] sockfd: %d and net.state: NET_CONNECTED and len: %d\n", sockfd, len);
-                    char *msg = (char *)&uxn.ram[write_addr];
-                    char *realmsg = "wf\r\n";
-                    printf("[DBG] %x vs %x vs %x, similarity = %d\n", &uxn.ram[write_addr], msg, realmsg, msg == realmsg);
-                    int bytes_sent = send(sockfd, msg, len, 0);
+                    int bytes_sent = send(sockfd, &uxn.ram[write_addr], len, 0);
                     printf("[DEBUG] write_addr: %x, bytes_sent: %d, sent: %s\n", write_addr, bytes_sent, &uxn.ram[write_addr]);
                     printf("[DEBUG] Send command complete\n");
                     if (bytes_sent < 0) {
