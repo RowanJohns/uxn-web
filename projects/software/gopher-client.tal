@@ -1,3 +1,4 @@
+( gopher client for UXN )
 |00 @System &vector $2 &pad $6 &r $2 &g $2 &b $2
 |10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
 |20 @Screen &vector $2 &width $2 &height $2 &auto $1 &pad $1 &x $2 &y $2 &addr $2 &pixel $1 &sprite $1
@@ -13,8 +14,8 @@
     
     ( Set target host and port )
     ;host .Network/host DEO2
-    ( port 79 for finger )
-    #004f .Network/port DEO2
+    ( port 70 for gopher )
+    #0046 .Network/port DEO2
     
     ( Start listening )
     #01 .Network/state DEO
@@ -40,6 +41,6 @@ BRK
         ;response .Console/write DEO
         POP BRK
 
-@host "plan.cat $1
-@query "mk 0d 0a $1
+@host "gopher.quux.org $1
+@query "/Books 0d 0a $1
 @response $200
