@@ -16,7 +16,7 @@
     ( port 79 for finger )
     #004f .Network/port DEO2
     
-    ( Start listening )
+    ( Connect )
     #01 .Network/state DEO
 
 BRK
@@ -41,5 +41,5 @@ BRK
         POP BRK
 
 @host "plan.cat $1
-@query "mk 0d 0a $1
+@query "jiggly 0d 0a $1
 @response $200

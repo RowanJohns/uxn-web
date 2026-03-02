@@ -77,11 +77,11 @@ then
 	echo "[debug]"
 	CFLAGS="${CFLAGS} -DDEBUG -Wpedantic -Wshadow -Wextra -Werror=implicit-int -Werror=incompatible-pointer-types -Werror=int-conversion -Wvla -g -Og -fsanitize=address -fsanitize=undefined"
 else
-	CFLAGS="${CFLAGS} -DNDEBUG -O2 -g0 -s"
+	CFLAGS="${CFLAGS} -DNDEBUG -O2 -g0"
 fi
 
 ${CC} ${CFLAGS} src/uxnasm.c -o bin/uxnasm
-${CC} ${CFLAGS} src/uxn.c src/devices/system.c src/devices/console.c src/devices/file.c src/devices/datetime.c src/devices/mouse.c src/devices/controller.c src/devices/screen.c src/devices/audio.c src/uxnemu.c src/devices/network.c ${UXNEMU_LDFLAGS} ${FILE_LDFLAGS} -o bin/uxnemu
+${CC} ${CFLAGS} src/uxn.c src/devices/system.c src/devices/console.c src/devices/file.c src/devices/datetime.c src/devices/mouse.c src/devices/controller.c src/devices/screen.c src/devices/audio.c src/uxnemu.c src/devices/network.c -lssl -lcrypto ${UXNEMU_LDFLAGS} ${FILE_LDFLAGS} -o bin/uxnemu
 ${CC} ${CFLAGS} src/uxn.c src/devices/system.c src/devices/console.c src/devices/file.c src/devices/datetime.c src/uxncli.c ${FILE_LDFLAGS} -o bin/uxncli
 
 if [ $install = 1 ]

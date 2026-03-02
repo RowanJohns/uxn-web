@@ -1,5 +1,5 @@
 /*
- * Fixed Network Device for Uxn
+ * TLS network device for UXN
  * src/devices/network.c
  */
 
@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #include "../uxn.h"
 
@@ -26,7 +28,9 @@ static struct {
     char host[256];
     int port;
     struct sockaddr_in addr;
-    int vector_pending;  
+    int vector_pending;
+    SSL_CTX *ctx;
+    SSL *ssl;
 } net = {0};
 
 /* Device states */
@@ -48,6 +52,100 @@ static struct {
 
 /* External variables from uxn.c */
 extern Uxn uxn;
+
+static void openssl_init(void) {
+    /* For OpenSSL 1.1.0+ this is mostly automatic, but these calls are safe */
+    SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
+}
+
+/* Helper functions to set up SSL certificates */
+SSL_CTX *create_server_ctx(void) {
+    const SSL_METHOD *method;
+    SSL_CTX *ctx;
+    method = TLS_server_method();
+    ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        ERR_print_errors_fp(stderr);
+        return NULL;
+    }
+    /* Load certificate and private key */
+    if (SSL_CTX_use_certificate_file(ctx, "path/to/server.crt", SSL_FILETYPE_PEM) <= 0) {
+        ERR_print_errors_fp(stderr);
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    if (SSL_CTX_use_PrivateKey_file(ctx, "path/to/server.key", SSL_FILETYPE_PEM) <= 0) {
+        ERR_print_errors_fp(stderr);
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    if (!SSL_CTX_check_private_key(ctx)) {
+        fprintf(stderr, "Private key does not match the certificate public key\n");
+        SSL_CTX_free(ctx);
+        return NULL;
+    }
+    /* Basic security hardening: disable legacy protocols */
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    return ctx;
+}
+
+SSL_CTX *create_client_ctx(void)
+{
+    /* TODO: check server certificate properly */
+    const SSL_METHOD *method;
+    SSL_CTX *ctx;
+    method = TLS_client_method();
+    ctx = SSL_CTX_new(method);
+    if (!ctx) {
+        ERR_print_errors_fp(stderr);
+        return NULL;
+    }
+    /* TOFU: for self-signed certs, trust server.crt directly (find out how to do this in verify_server) */
+    // if (!SSL_CTX_load_verify_locations(ctx, "", NULL)) {
+    //     ERR_print_errors_fp(stderr);
+    //     SSL_CTX_free(ctx);
+    //     return NULL;
+    // }
+    // SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+    // SSL_CTX_set_verify_depth(ctx, 4);
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+    return ctx;
+}
+
+/* TOFU client checks for server certs */
+static int verify_server()
+{
+    // Create a store for trusted CAs
+    X509_STORE *store = X509_STORE_new();
+    if (!store) {
+        fprintf(stderr, "Failed to create X509_STORE\n");
+        return 1;
+    }
+    
+    X509 *server_cert = SSL_get_peer_certificate(net.ssl);
+    if (!server_cert) {
+        fprintf(stderr, "No server certificate presented\n");
+        return 1;
+    }
+    X509_free(server_cert); /* SSL_get_verify_result uses internal cert copy */
+    long res = SSL_get_verify_result(net.ssl);
+    if (res != X509_V_OK) {
+        fprintf(stderr, "Certificate verification error: %ld\n", res);
+        return 1;
+    }
+
+    // Add CA to the trusted store
+    if (X509_STORE_add_cert(store, server_cert) != 1) {
+        fprintf(stderr, "Failed to add CA to store\n");
+        ERR_print_errors_fp(stderr);
+        X509_free(server_cert);
+        X509_STORE_free(store);
+        return 1;
+    }
+    X509_free(server_cert); // CA is now in the store; free local copy
+    return 0;
+}
 
 /* Helper function to trigger network vector */
 static void trigger_network_vector(void) {
@@ -94,28 +192,52 @@ static int net_create_socket(void) {
 }
 
 static void net_connect(void) {
-    /* store results from addr info to use in connect */
+    /* Create client ctx before connecting */
+    openssl_init();
+    net.ctx = create_client_ctx();
+    /* Store results from addr info to use in connect */
     struct addrinfo hints, *res;
     int status;
-    char strport[4];
-    /* set up variables and get info from host */
+    char strport[6];
+    /* Set up variables and get info from host */
     printf("[DEBUG] Connecting to %s:%d\n", net.host, net.port);
     if (net_create_socket() < 0) return;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    /* convert port from int to string */
+    /* Convert port from int to string */
     sprintf(strport, "%d", net.port);
-    if ((status = getaddrinfo(net.host, strport, &hints, &res)) != 0) {
+    if (getaddrinfo(net.host, strport, &hints, &res) != 0) {
         fprintf(stderr, "[DEBUG] getaddrinfo: %s\n", gai_strerror(status));
         net.state = NET_ERROR;
         trigger_network_vector();
     }
-    /* connect to host */
-    int result = connect(net.sockfd, res->ai_addr, res->ai_addrlen);
-    /* interpret result */
-    if (result == 0) {
+    /* Connect to host and interpret result */
+    if (connect(net.sockfd, res->ai_addr, res->ai_addrlen) == 0) {
         printf("[DEBUG] Connected immediately\n");
+        freeaddrinfo(res);
+        /* Set up TLS connection */
+        net.ssl = SSL_new(net.ctx);
+        if (!net.ssl) {
+            ERR_print_errors_fp(stderr);
+            net_close();
+        }
+        SSL_set_fd(net.ssl, net.sockfd);
+        if (SSL_connect(net.ssl) <= 0) {
+            printf("[DEBUG] TLS handshake failed\n");
+            ERR_print_errors_fp(stderr);
+            SSL_shutdown(net.ssl);
+            SSL_free(net.ssl);
+            net_close();
+        }
+        /* If implementing TOFU, use this function */
+        // if (verify_server() != 0) {
+        //     ERR_print_errors_fp(stderr);
+        //     SSL_shutdown(net.ssl);
+        //     SSL_free(net.ssl);
+        //     net_close();
+        // }
+        printf("[DEBUG] TLS handshake successful\n");
         net.state = NET_CONNECTED;
         trigger_network_vector();
     } else if (errno == EINPROGRESS) {
@@ -130,14 +252,15 @@ static void net_connect(void) {
 }
 
 static void net_listen(void) {
+    /* Create server ctx before listening */
+    openssl_init();
+    net.ctx = create_server_ctx();
     printf("[DEBUG] Starting to listen on port %d\n", net.port);
     if (net_create_socket() < 0) return;
-    
     memset(&net.addr, 0, sizeof(net.addr));
     net.addr.sin_family = AF_INET;
     net.addr.sin_port = htons(net.port);
     net.addr.sin_addr.s_addr = INADDR_ANY;
-    
     if (bind(net.sockfd, (struct sockaddr*)&net.addr, sizeof(net.addr)) < 0) {
         printf("[DEBUG] Bind failed: %s\n", strerror(errno));
         net.state = NET_ERROR;
@@ -167,6 +290,23 @@ static void net_accept(void) {
     
     if (net.client_sockfd > 0) {
         printf("[DEBUG] Client accepted, client_fd=%d\n", net.client_sockfd);
+        /* Now wrap the accepted connection in TLS */
+        net.ssl = SSL_new(net.ctx);
+        if (!net.ssl) {
+            ERR_print_errors_fp(stderr);
+            close(net.client_sockfd);
+            return;
+        }
+        SSL_set_fd(net.ssl, net.client_sockfd);
+        if (SSL_accept(net.ssl) <= 0) {
+            fprintf(stderr, "[DEBUG] TLS handshake failed\n");
+            ERR_print_errors_fp(stderr);
+            SSL_shutdown(net.ssl);
+            SSL_free(net.ssl);
+            close(net.client_sockfd);
+            return;
+        }
+        printf("[DEBUG] TLS handshake successful\n");
         net.state = NET_CONNECTED;
         trigger_network_vector();
     } else {
@@ -236,9 +376,7 @@ void network_tick(void) {
 
 /* Public interface */
 Uint8 network_dei(Uint8 addr) {
-    printf("[DEBUG DEI] Next case: %x\n", addr & 0x0f);
-    printf("[DEBUG DEI] dev[0xa8]: %d\n", uxn.dev[0xa8]);
-    printf("[DEBUG DEI] dev[0xa9]: %d\n", uxn.dev[0xa9]);
+    printf("[DEBUG DEI] Case: %x\n", addr & 0x0f);
     switch (addr & 0x0f) {
         case 0x02: /* state */
             net_check_connection();
@@ -256,7 +394,6 @@ Uint8 network_dei(Uint8 addr) {
 void network_deo(Uint8 addr) {
     Uint8 value = uxn.dev[addr];
     printf("[DEBUG DEO] Case: %x\n", addr & 0x0f);
-
     switch (addr & 0x0f) {
         case 0x02: /* state/command */
             printf("[DEBUG] Network command: %d\n", value);
@@ -300,7 +437,7 @@ void network_deo(Uint8 addr) {
             
         case 0x0b: /* read address (low byte) - trigger read */
             {   
-                printf("- Start of read -\nAddress a8: %d\nAddress a9: %d\n", uxn.dev[0xa8], uxn.dev[0xa9]);
+                printf("\n- Start of read -\n");
                 Uint16 read_addr = (uxn.dev[addr - 1] << 8) | value;
                 Uint16 max_len = (uxn.dev[0xa8] << 8) | uxn.dev[0xa9];
                 int sockfd = net_get_socket();
@@ -308,12 +445,11 @@ void network_deo(Uint8 addr) {
                 printf("[DEBUG] Read request: addr=0x%04x, max_len=%d, sockfd=%d, state=%d\n", 
                        read_addr, max_len, sockfd, net.state);
                 if (sockfd > 0 && net.state == NET_CONNECTED && max_len > 0) {
-                    int bytes_read = recv(sockfd, &uxn.ram[read_addr], max_len, 0);
-                    /* print the response */
-                    printf("%s\n", &uxn.ram[read_addr]);
+                    int bytes_read = SSL_read(net.ssl, &uxn.ram[read_addr], max_len);
                     if (bytes_read < 0) {
+                        printf("[DEBUG] Read failed\n");
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                            printf("[DEBUG] Read error: %s\n", strerror(errno));
+                            ERR_print_errors_fp(stderr);
                             net.state = NET_ERROR;
                         }
                         bytes_read = 0;
@@ -321,44 +457,43 @@ void network_deo(Uint8 addr) {
                         printf("[DEBUG] Connection closed by peer\n");
                         net.state = NET_CLOSED;
                     } else {
-                        printf("[DEBUG] Read %d bytes\n", bytes_read);
+                        printf("[DEBUG] Read successful, read_addr: %x, bytes_read: %d, recieved: %s\n", read_addr, bytes_read, &uxn.ram[read_addr]);
                     }
                     
                     /* Update length with actual bytes read */
                     uxn.dev[0xa8] = (bytes_read >> 8) & 0xff;
                     uxn.dev[0xa9] = bytes_read & 0xff;
-                    printf("- End of read -\nAddress a8: %d\nAddress a9: %d\n", uxn.dev[0xa8], uxn.dev[0xa9]);
+                    printf("- End of read -\n\n");
                 }
             }
             break;
             
         case 0x0d: /* write address (low byte) - trigger write */
             {
+                printf("\n- Start of write -\n");
                 Uint16 write_addr = (uxn.dev[addr - 1] << 8) | value;
                 int sockfd = net_get_socket();
-                size_t len = strlen(&uxn.ram[write_addr]);
+                size_t len = strlen((const char *)&uxn.ram[write_addr]);
                 printf("[DEBUG] Write request: addr=0x%04x, len=%zu, sockfd=%d, state=%d\n", 
                        write_addr, len, sockfd, net.state);
                 if (sockfd > 0 && net.state == NET_CONNECTED && len > 0) {
-                    int bytes_sent = send(sockfd, &uxn.ram[write_addr], len, 0);
-                    printf("[DEBUG] write_addr: %x, bytes_sent: %d, sent: %s\n", write_addr, bytes_sent, &uxn.ram[write_addr]);
-                    printf("[DEBUG] Send command complete\n");
-                    if (bytes_sent < 0) {
+                    int bytes_sent = SSL_write(net.ssl, &uxn.ram[write_addr], len);
+                    if (bytes_sent <= 0) {
+                        printf("[DEBUG] Write failed\n");
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                            printf("[DEBUG] Write error: %s\n", strerror(errno));
+                            ERR_print_errors_fp(stderr);
                             net.state = NET_ERROR;
                         }
                         bytes_sent = 0;
                     } else {
-                        printf("[DEBUG] Sent %d bytes\n", bytes_sent);
+                        printf("[DEBUG] Write successful, write_addr: %x, bytes_sent: %d, sent: %s\n", write_addr, bytes_sent, &uxn.ram[write_addr]);
                     }
-                    
                     /* Update length with actual bytes sent */
                     uxn.dev[0xa8] = (bytes_sent >> 8) & 0xff;
                     uxn.dev[0xa9] = bytes_sent & 0xff;
                 }
+                printf("- End of write -\n\n");
             }
-            printf("[DEBUG] Write address complete\n");
             break;
     }
 }

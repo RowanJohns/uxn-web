@@ -35,10 +35,8 @@ BRK
         ( Read data )
       #0080 .Network/length DEO2 ( #0080 -> max length = 128 is stored in device address 00xa9 )
         ;buffer .Network/read DEO2  ( buffer is read into device address 00xaa-00xab )
-        
+
         ( Echo data back )
-        ( the below line was causing the length to be set to 0 instead of the actual length, so nothing was printing )
-        ( .Network/length DEI2 .Network/length DEO2 )
         ;buffer .Network/write DEO2
         
         POP BRK
