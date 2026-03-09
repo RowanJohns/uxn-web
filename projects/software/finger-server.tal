@@ -37,7 +37,7 @@
             POP POP2 #00 !finish }  
         ;counter LDA2k      
         SWP2 POP2           
-        ;text ADD2          
+        ;buffer ADD2          
         ;counter LDA2k      
         SWP2 POP2           
         ;command ADD2       
@@ -89,9 +89,6 @@ BRK
             #0014 .Network/length DEO2
             ;response .Network/write DEO2
             BRK
-
-    @text
-    "finger 20 "user 00
 
     @command
     "finger 00

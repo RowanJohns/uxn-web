@@ -1,0 +1,175 @@
+( gemini server for UXN )
+|00 @System &vector $2 &pad $6
+|0e @System/debug $1
+|10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+|b0 @File [ &vector $2 &success $2 &stat $2 &delete $1 &append $1 &name $2 &length $2 &read $2 &write $2 ]
+
+%DBG ( -- ) {
+    [ LIT2 01 -System/debug ] DEO }
+    
+( print a character to network output )
+%EMIT { .Console/write DEO } ( character -- )
+
+( print a newline )
+%NL { #0a EMIT } ( -- )
+
+( get the page name from an address )
+%GET_QUERY {
+    #0017 ADD2
+    @iterate
+        LDAk DUP ?{ POP POP2 POP2 !done }
+        ;query #0007 ADD2 ;point LDA2 ADD2 STA
+        ;point LDA2k INC2 SWP2 STA2
+				;increment LDA2 ADD2
+        !iterate
+    @point
+    0000
+    @increment
+    0001
+    @done
+        #00 DBG ;query DBG #0008 DBG ADD2 DBG STA DBG
+} ( address -- )
+
+( print a string stored at an address )
+%PRINT {
+    @loop
+        LDAk DUP ?{ POP NL !finish }
+        EMIT
+        ;pointer LDA2k
+        INC2 SWP2 POP2 ADD2
+        ;pointer LDA2k SWP2 STA2
+        !loop
+    @pointer
+    0000
+    @finish
+} ( address -- )
+
+( check that text matches a command )
+%CHECK_CMD {
+    @while                  
+        LDAk DUP ?{         
+            POP POP2 POP2 #01 !check_done }   
+        SWP POP SWP POP     
+        SWP ROT SWP         
+        LDAk DUP ?{         
+            POP POP2 POP2 #00 !check_done }   
+        SWP POP SWP POP     
+        EQU ?{              
+            POP POP2 #00 !check_done }  
+        ;counter LDA2k      
+        SWP2 POP2           
+        ;buffer ADD2          
+        ;counter LDA2k      
+        SWP2 POP2           
+        ;location ADD2       
+        ;counter LDA2k      
+        INC2 SWP2                   
+        STA2                
+        !while            
+
+    @counter
+    0001   
+} ( command text -- flag )
+
+( find the requested page in the server's files and load it )
+%FIND_PAGE {
+
+    @load-file
+        ;query .File/name DEO2
+        #00ff .File/length DEO2
+
+        ;file/data .File/read DEO2
+
+        .File/success DEI2 #0000 EQU2 ,&failed JCN
+
+        &success
+            LIT "Y .Console/write DEO
+        POP2 BRK
+
+        &failed
+            LIT "N .Console/write DEO
+    POP2 BRK
+
+    @file
+        &data $ff
+} ( address -- flag )
+
+|0100 ( -> )
+
+    ( Set network callback )
+    ;on-network .Network/vector DEO2
+    
+    ( Configure as TCP server )
+    #01 .Network/type DEO
+    
+    ( Listen on port 1965 )
+    #07ad .Network/port DEO2
+    
+    ( Start listening )
+    #02 .Network/state DEO
+
+BRK
+
+@on-network
+    .Network/state DEI
+    
+    DUP #03 EQU ?&accept-client
+    DUP #02 EQU ?&handle-client
+
+    POP BRK
+
+    &accept-client
+        #04 .Network/state DEO  ( Accept connection )
+        POP BRK
+
+    &handle-client
+        #0080 .Network/length DEO2
+        ;buffer .Network/read DEO2
+        ;buffer                 ( Push text pointer )
+        ;location               ( Push correct URL pointer )
+        CHECK_CMD               ( Check client sent a valid request )
+        @check_done
+            ?{ BRK } ( this will need to be a return code at some point )
+            #0014 .Network/length DEO2
+            ;response .Network/write DEO2
+            ( ;buffer GET_QUERY )
+            DBG
+            !load-file
+            ;File/success LDA2 ?{ BRK } ( this will need to be a return code at some point )
+            #65 .Console/write DEO
+            BRK
+
+    @location
+    "gemini://glossygem.net/ 00
+
+    @buffer $80
+
+    @response
+    "Valid 20 "URL 20 "received 0a
+
+    @page $00ff
+
+    @filename "files/file 00
+
+    @load-file
+        ;query DBG .File/name DEO2
+        DBG
+        #00ff DBG .File/length DEO2
+        DBG
+        ;file/data DBG .File/read DEO2
+        DBG
+        .File/success DEI2 DBG #0000 EQU2 ,&failed JCN
+
+        &success
+            LIT "Y .Console/write DEO
+        JMP2r
+
+        &failed
+            LIT "N .Console/write DEO
+        JMP2r
+
+        @file
+            &data $ff
+    
+    @query "gemini/welcome 00

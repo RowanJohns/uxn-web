@@ -1,0 +1,53 @@
+|00 @System &vector $2 &pad $6
+|0e @System/debug $1
+|10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+|b0 @File [ &vector $2 &success $2 &stat $2 &delete $1 &append $1 &name $2 &length $2 &read $2 &write $2 ]
+( find the requested page in the server's files and load it )
+
+%DBG ( -- ) {
+    [ LIT2 01 -System/debug ] DEO }
+
+( print a character to network output )
+%EMIT { .Console/write DEO } ( character -- )
+
+( print a newline )
+%NL { #0a EMIT } ( -- )
+
+|0100
+
+!load-file
+
+( print a string stored at an address )
+@PRINT
+    @loop
+        LDAk DUP ?{ POP NL JMP2r }
+        EMIT
+        ;pointer LDA2k
+        INC2 SWP2 POP2 ADD2
+        ;pointer LDA2k SWP2 STA2
+        !loop
+    @pointer
+    0000
+
+@Rowan
+    "kjwnegonwoinwoi PRINT
+
+@load-file
+    ;query DBG .File/name DEO2
+    #00ff DBG .File/length DEO2
+    ;file/data DBG .File/read DEO2
+    .File/success DEI2 DBG #0000 EQU2 ,&failed JCN
+
+    &success
+        LIT "Y .Console/write DEO
+    JMP2r
+
+    &failed
+        LIT "N .Console/write DEO
+    JMP2r
+
+    @file
+        &data $ff
+
+@query "files/file

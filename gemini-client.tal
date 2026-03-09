@@ -1,0 +1,70 @@
+( gemini client for UXN )
+|00 @System &vector $2 &pad $6 &r $2 &g $2 &b $2
+|10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
+|20 @Screen &vector $2 &width $2 &height $2 &auto $1 &pad $1 &x $2 &y $2 &addr $2 &pixel $1 &sprite $1
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+
+( macros )
+( print a character to standard output )
+%EMIT { .Console/write DEO } ( character -- )
+( print a newline )
+%NL { #0a EMIT } ( -- )
+( print a string stored at an address )
+%PRINT {
+    @loop
+        LDAk DUP ?{ POP NL !done }
+        EMIT
+        ;pointer LDA2k
+        INC2 SWP2 POP2 ADD2
+        ;pointer LDA2k SWP2 STA2
+        !loop
+    @pointer
+    0000
+    @done
+} ( address -- )
+
+|0100 ( -> )
+
+    ( Set network callback )
+    ;on-network .Network/vector DEO2
+    
+    ( Configure as TCP client )
+    #00 .Network/type DEO
+    
+    ( Set target host and port )
+    ;host .Network/host DEO2
+    ( port 1965 for gemini )
+    #07ad .Network/port DEO2
+    
+    ( Connect )
+    #01 .Network/state DEO
+
+BRK
+
+@on-network ( -> )
+    .Network/state DEI
+    
+    DUP #02 EQU ?&connected
+    
+    POP BRK
+    
+    &connected
+        ( Send gemini URL request )
+      #0080 .Network/length DEO2
+        ;query .Network/write DEO2
+        
+        ( Read response )
+        #ffff .Network/length DEO2
+        ;response .Network/read DEO2
+        
+        ;response PRINT
+
+        #0007 .Network/length DEO2
+        ;response .Network/read DEO2
+        ;response PRINT
+        POP BRK
+
+@prompt "Search: 20 0a
+@host "127.0.0.1 $1
+@query "gemini://glossygem.net/welcome 0d 0a $1
+@response $200 $1

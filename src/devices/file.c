@@ -198,9 +198,13 @@ file_read(UxnFile *c, void *dest, int len)
 	if(c->outside_sandbox) return 0;
 	if(c->state != FILE_READ && c->state != DIR_READ) {
 		reset(c);
-		if((c->dir = opendir(c->current_filename)) != NULL)
+		printf("[DBG] Reading file: %s",c->current_filename);
+		if((c->dir = opendir(c->current_filename)) != NULL) {
+			printf("[DBG] Opened dir: %s",(char *)c->dir);
 			c->state = DIR_READ;
+		}
 		else if((c->f = fopen(c->current_filename, "rb")) != NULL)
+			printf("[DBG] Opened file %s",(char *)c->f);
 			c->state = FILE_READ;
 	}
 	if(c->state == FILE_READ)
@@ -349,7 +353,7 @@ file_deo(Uint8 port)
 		POKE2(&uxn.dev[0xa2], res);
 		break;
 	/* File 2 */
-	case 0xb5:
+	case 0xb5: //stat
 		addr = PEEK2(&uxn.dev[0xb4]);
 		len = PEEK2(&uxn.dev[0xba]);
 		if(len > 0x10000 - addr)
@@ -357,16 +361,16 @@ file_deo(Uint8 port)
 		res = file_stat(&uxn_file[1], &uxn.ram[addr], len);
 		POKE2(&uxn.dev[0xb2], res);
 		break;
-	case 0xb6:
+	case 0xb6: //delete
 		res = file_delete(&uxn_file[1]);
 		POKE2(&uxn.dev[0xb2], res);
 		break;
-	case 0xb9:
+	case 0xb9: //name
 		addr = PEEK2(&uxn.dev[0xb8]);
 		res = file_init(&uxn_file[1], (char *)&uxn.ram[addr], 0x10000 - addr, 0);
 		POKE2(&uxn.dev[0xb2], res);
 		break;
-	case 0xbd:
+	case 0xbd: //read
 		addr = PEEK2(&uxn.dev[0xbc]);
 		len = PEEK2(&uxn.dev[0xba]);
 		if(len > 0x10000 - addr)
@@ -374,7 +378,7 @@ file_deo(Uint8 port)
 		res = file_read(&uxn_file[1], &uxn.ram[addr], len);
 		POKE2(&uxn.dev[0xb2], res);
 		break;
-	case 0xbf:
+	case 0xbf: //write
 		addr = PEEK2(&uxn.dev[0xbe]);
 		len = PEEK2(&uxn.dev[0xba]);
 		if(len > 0x10000 - addr)
