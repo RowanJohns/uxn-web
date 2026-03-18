@@ -2,7 +2,7 @@
 |00 @System &vector $2 &pad $6
 |0e @System/debug $1
 |10 @Console &vector $2 &read $1 &pad $5 &write $1 &error $1
-|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2
+|a0 @Network &vector $2 &state $1 &type $1 &host $2 &port $2 &length $2 &read $2 &write $2 &tls $1
 |b0 @File [ &vector $2 &success $2 &stat $2 &delete $1 &append $1 &name $2 &length $2 &read $2 &write $2 ]
 
 %DBG ( -- ) {
@@ -14,87 +14,6 @@
 ( print a newline )
 %NL { #0a EMIT } ( -- )
 
-( get the page name from an address )
-%GET_QUERY {
-    #0017 ADD2
-    @iterate
-        LDAk DUP ?{ POP POP2 POP2 !done }
-        ;query #0007 ADD2 ;point LDA2 ADD2 STA
-        ;point LDA2k INC2 SWP2 STA2
-				;increment LDA2 ADD2
-        !iterate
-    @point
-    0000
-    @increment
-    0001
-    @done
-        #00 DBG ;query DBG #0008 DBG ADD2 DBG STA DBG
-} ( address -- )
-
-( print a string stored at an address )
-%PRINT {
-    @loop
-        LDAk DUP ?{ POP NL !finish }
-        EMIT
-        ;pointer LDA2k
-        INC2 SWP2 POP2 ADD2
-        ;pointer LDA2k SWP2 STA2
-        !loop
-    @pointer
-    0000
-    @finish
-} ( address -- )
-
-( check that text matches a command )
-%CHECK_CMD {
-    @while                  
-        LDAk DUP ?{         
-            POP POP2 POP2 #01 !check_done }   
-        SWP POP SWP POP     
-        SWP ROT SWP         
-        LDAk DUP ?{         
-            POP POP2 POP2 #00 !check_done }   
-        SWP POP SWP POP     
-        EQU ?{              
-            POP POP2 #00 !check_done }  
-        ;counter LDA2k      
-        SWP2 POP2           
-        ;buffer ADD2          
-        ;counter LDA2k      
-        SWP2 POP2           
-        ;location ADD2       
-        ;counter LDA2k      
-        INC2 SWP2                   
-        STA2                
-        !while            
-
-    @counter
-    0001   
-} ( command text -- flag )
-
-( find the requested page in the server's files and load it )
-%FIND_PAGE {
-
-    @load-file
-        ;query .File/name DEO2
-        #00ff .File/length DEO2
-
-        ;file/data .File/read DEO2
-
-        .File/success DEI2 #0000 EQU2 ,&failed JCN
-
-        &success
-            LIT "Y .Console/write DEO
-        POP2 BRK
-
-        &failed
-            LIT "N .Console/write DEO
-    POP2 BRK
-
-    @file
-        &data $ff
-} ( address -- flag )
-
 |0100 ( -> )
 
     ( Set network callback )
@@ -103,6 +22,9 @@
     ( Configure as TCP server )
     #01 .Network/type DEO
     
+    ( Configure TLS to on )
+    #01 .Network/tls DEO
+
     ( Listen on port 1965 )
     #07ad .Network/port DEO2
     
@@ -125,51 +47,63 @@ BRK
 
     &handle-client
         #0080 .Network/length DEO2
-        ;buffer .Network/read DEO2
-        ;buffer                 ( Push text pointer )
-        ;location               ( Push correct URL pointer )
-        CHECK_CMD               ( Check client sent a valid request )
-        @check_done
-            ?{ BRK } ( this will need to be a return code at some point )
-            #0014 .Network/length DEO2
-            ;response .Network/write DEO2
-            ( ;buffer GET_QUERY )
-            DBG
-            !load-file
-            ;File/success LDA2 ?{ BRK } ( this will need to be a return code at some point )
-            #65 .Console/write DEO
-            BRK
+        ;buffer .Network/read DEO2 POP2 ( Read in client message )
+        ;buffer ;location ;check/request JSR2
+        !load-file
 
-    @location
-    "gemini://glossygem.net/ 00
 
-    @buffer $80
+@check/request ( buffer* location* -- )
+    LDAk ?{ POP2 POP2 JMP2r }
+    LDAk #00
+    ROT2
+    LDAk #00
+    ROT2 POP SWP POP
+    EQU ?{ POP2 POP2 BRK } ( give error for invalid request here )
+    INC2 SWP2 INC2 !/request
 
-    @response
-    "Valid 20 "URL 20 "received 0a
+@query/store ( query* buffer* -- )
+    #0017 ADD2
+    LDAk ?{ POP2 JMP2r }
+    SWP2
+    #0007 ADD2
+    SWP2
+    LDAk #00
+    ROT2 ROT POP
+    STAk ROT POP
+    #0007 SUB2
+    INC2 SWP2
+    #0017 SUB2
+    INC2 !/store
 
-    @page $00ff
 
-    @filename "files/file 00
+@print/string ( string* -- )
+    LDAk ?{ NL POP2 JMP2r }
+    LDAk EMIT
+    INC2 !/string
 
-    @load-file
-        ;query DBG .File/name DEO2
-        DBG
-        #00ff DBG .File/length DEO2
-        DBG
-        ;file/data DBG .File/read DEO2
-        DBG
-        .File/success DEI2 DBG #0000 EQU2 ,&failed JCN
+@load-file
+    ;query ;buffer ;query/store JSR2
+    ;query .File/name DEO2
+    #00ff .File/length DEO2
+    ;file/data .File/read DEO2
+    .File/success DEI2 #0000 EQU2 ,&failed JCN
 
-        &success
-            LIT "Y .Console/write DEO
-        JMP2r
+    &success
+        LIT "Y .Console/write DEO NL
+        ;file/data ;print/string JSR2
+        ;file/data .Network/write DEO2
+        BRK
 
-        &failed
-            LIT "N .Console/write DEO
-        JMP2r
+    &failed
+        LIT "N .Console/write DEO NL
+        ;failure .Network/write DEO2
+        BRK
 
-        @file
-            &data $ff
-    
-    @query "gemini/welcome 00
+@file
+    &data $ff
+
+@location "gemini://glossygem.net/ 00
+@success "Valid 20 "URL 20 "received. 0a
+@query "gemini/ $20
+@buffer $80
+@failure "Invalid 20 "URL 20 "received. 20 "This 20 "server 20 "accepts 20 "requests 20 "of 20 "the 20 "form 20 "gemini://glossygem.net/pagename 20 "00

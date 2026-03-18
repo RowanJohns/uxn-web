@@ -31,6 +31,7 @@ static struct {
     int vector_pending;
     SSL_CTX *ctx;
     SSL *ssl;
+    int tls;
 } net = {0};
 
 /* Device states */
@@ -192,9 +193,11 @@ static int net_create_socket(void) {
 }
 
 static void net_connect(void) {
-    /* Create client ctx before connecting */
-    openssl_init();
-    net.ctx = create_client_ctx();
+    if (net.tls) {
+        /* Create client ctx before connecting */
+        openssl_init();
+        net.ctx = create_client_ctx();
+    }
     /* Store results from addr info to use in connect */
     struct addrinfo hints, *res;
     int status;
@@ -216,28 +219,30 @@ static void net_connect(void) {
     if (connect(net.sockfd, res->ai_addr, res->ai_addrlen) == 0) {
         // printf("[DEBUG] Connected immediately\n");
         freeaddrinfo(res);
-        /* Set up TLS connection */
-        net.ssl = SSL_new(net.ctx);
-        if (!net.ssl) {
-            ERR_print_errors_fp(stderr);
-            net_close();
+        if (net.tls) {
+            /* Set up TLS connection */
+            net.ssl = SSL_new(net.ctx);
+            if (!net.ssl) {
+                ERR_print_errors_fp(stderr);
+                net_close();
+            }
+            SSL_set_fd(net.ssl, net.sockfd);
+            if (SSL_connect(net.ssl) <= 0) {
+                printf("[DEBUG] TLS handshake failed\n");
+                ERR_print_errors_fp(stderr);
+                SSL_shutdown(net.ssl);
+                SSL_free(net.ssl);
+                net_close();
+            }
+            /* If implementing TOFU, use this function */
+            // if (verify_server() != 0) {
+            //     ERR_print_errors_fp(stderr);
+            //     SSL_shutdown(net.ssl);
+            //     SSL_free(net.ssl);
+            //     net_close();
+            // }
+            // printf("[DEBUG] TLS handshake successful\n");
         }
-        SSL_set_fd(net.ssl, net.sockfd);
-        if (SSL_connect(net.ssl) <= 0) {
-            printf("[DEBUG] TLS handshake failed\n");
-            ERR_print_errors_fp(stderr);
-            SSL_shutdown(net.ssl);
-            SSL_free(net.ssl);
-            net_close();
-        }
-        /* If implementing TOFU, use this function */
-        // if (verify_server() != 0) {
-        //     ERR_print_errors_fp(stderr);
-        //     SSL_shutdown(net.ssl);
-        //     SSL_free(net.ssl);
-        //     net_close();
-        // }
-        // printf("[DEBUG] TLS handshake successful\n");
         net.state = NET_CONNECTED;
         trigger_network_vector();
     } else if (errno == EINPROGRESS) {
@@ -252,9 +257,11 @@ static void net_connect(void) {
 }
 
 static void net_listen(void) {
-    /* Create server ctx before listening */
-    openssl_init();
-    net.ctx = create_server_ctx();
+    if (net.tls) {
+        /* Create server ctx before listening */
+        openssl_init();
+        net.ctx = create_server_ctx();
+    }
     // printf("[DEBUG] Starting to listen on port %d\n", net.port);
     if (net_create_socket() < 0) return;
     memset(&net.addr, 0, sizeof(net.addr));
@@ -290,20 +297,22 @@ static void net_accept(void) {
     if (net.client_sockfd > 0) {
         // printf("[DEBUG] Client accepted, client_fd=%d\n", net.client_sockfd);
         /* Now wrap the accepted connection in TLS */
-        net.ssl = SSL_new(net.ctx);
-        if (!net.ssl) {
-            ERR_print_errors_fp(stderr);
-            close(net.client_sockfd);
-            return;
-        }
-        SSL_set_fd(net.ssl, net.client_sockfd);
-        if (SSL_accept(net.ssl) <= 0) {
-            fprintf(stderr, "[DEBUG] TLS handshake failed\n");
-            ERR_print_errors_fp(stderr);
-            SSL_shutdown(net.ssl);
-            SSL_free(net.ssl);
-            close(net.client_sockfd);
-            return;
+        if (net.tls) {
+            net.ssl = SSL_new(net.ctx);
+            if (!net.ssl) {
+                ERR_print_errors_fp(stderr);
+                close(net.client_sockfd);
+                return;
+            }
+            SSL_set_fd(net.ssl, net.client_sockfd);
+            if (SSL_accept(net.ssl) <= 0) {
+                fprintf(stderr, "[DEBUG] TLS handshake failed\n");
+                ERR_print_errors_fp(stderr);
+                SSL_shutdown(net.ssl);
+                SSL_free(net.ssl);
+                close(net.client_sockfd);
+                return;
+            }
         }
         // printf("[DEBUG] TLS handshake successful\n");
         net.state = NET_CONNECTED;
@@ -443,7 +452,13 @@ void network_deo(Uint8 addr) {
                 
                 // printf("[DEBUG] Read request: addr=0x%04x, max_len=%d, sockfd=%d, state=%d\n", read_addr, max_len, sockfd, net.state);
                 if (sockfd > 0 && net.state == NET_CONNECTED && max_len > 0) {
-                    int bytes_read = SSL_read(net.ssl, &uxn.ram[read_addr], max_len);
+                    int bytes_read;
+                    if (net.tls) {
+                        bytes_read = SSL_read(net.ssl, &uxn.ram[read_addr], max_len);
+                    }
+                    else {
+                        bytes_read = recv(sockfd, &uxn.ram[read_addr], max_len, 0);
+                    }
                     if (bytes_read < 0) {
                         printf("[DEBUG] Read failed\n");
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -475,7 +490,13 @@ void network_deo(Uint8 addr) {
                 size_t len = strlen((const char *)&uxn.ram[write_addr]);
                 // printf("[DEBUG] Write request: addr=0x%04x, len=%zu, sockfd=%d, state=%d\n", write_addr, len, sockfd, net.state);
                 if (sockfd > 0 && net.state == NET_CONNECTED && len > 0) {
-                    int bytes_sent = SSL_write(net.ssl, &uxn.ram[write_addr], len);
+                    int bytes_sent;
+                    if (net.tls) {
+                        bytes_sent = SSL_write(net.ssl, &uxn.ram[write_addr], len);
+                    }
+                    else {
+                        bytes_sent = send(sockfd, &uxn.ram[write_addr], len, 0);
+                    }
                     if (bytes_sent <= 0) {
                         printf("[DEBUG] Write failed\n");
                         if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -493,6 +514,17 @@ void network_deo(Uint8 addr) {
                 // printf("- End of write -\n\n");
             }
             break;
+        
+        case 0x0f: /* switch on/off TLS encryption */
+        {   
+            if (uxn.dev[0xaf] == 0 | uxn.dev[0xaf] == 1) {
+                net.tls = uxn.dev[0xaf];
+            }
+            else {
+                printf("Invalid TLS state supplied. Use 1 to turn on TLS and 0 to turn it off.");
+                net.state = NET_ERROR;
+            }
+        }
     }
 }
 

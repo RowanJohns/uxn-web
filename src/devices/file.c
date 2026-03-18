@@ -198,13 +198,10 @@ file_read(UxnFile *c, void *dest, int len)
 	if(c->outside_sandbox) return 0;
 	if(c->state != FILE_READ && c->state != DIR_READ) {
 		reset(c);
-		printf("[DBG] Reading file: %s",c->current_filename);
 		if((c->dir = opendir(c->current_filename)) != NULL) {
-			printf("[DBG] Opened dir: %s",(char *)c->dir);
 			c->state = DIR_READ;
 		}
 		else if((c->f = fopen(c->current_filename, "rb")) != NULL)
-			printf("[DBG] Opened file %s",(char *)c->f);
 			c->state = FILE_READ;
 	}
 	if(c->state == FILE_READ)

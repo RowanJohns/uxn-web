@@ -8,7 +8,7 @@
 *.bak
 /*-test
 /screenshot-*.bmp
-
+run.sh
 *snarf
 *theme
 
