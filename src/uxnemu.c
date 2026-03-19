@@ -13,6 +13,7 @@
 #include "devices/console.h"
 #include "devices/screen.h"
 #include "devices/audio.h"
+#include "devices/network.h"
 #include "devices/file.h"
 #include "devices/controller.h"
 #include "devices/mouse.h"

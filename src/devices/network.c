@@ -71,12 +71,12 @@ SSL_CTX *create_server_ctx(void) {
         return NULL;
     }
     /* Load certificate and private key */
-    if (SSL_CTX_use_certificate_file(ctx, "path/to/server.crt", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_certificate_file(ctx, "/Users/Rowan/Documents/Uni Files/individual_project/uxn-web/certificates/server.crt", SSL_FILETYPE_PEM) <= 0) {
         ERR_print_errors_fp(stderr);
         SSL_CTX_free(ctx);
         return NULL;
     }
-    if (SSL_CTX_use_PrivateKey_file(ctx, "path/to/server.key", SSL_FILETYPE_PEM) <= 0) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, "/Users/Rowan/Documents/Uni Files/individual_project/uxn-web/certificates/server.key", SSL_FILETYPE_PEM) <= 0) {
         ERR_print_errors_fp(stderr);
         SSL_CTX_free(ctx);
         return NULL;
