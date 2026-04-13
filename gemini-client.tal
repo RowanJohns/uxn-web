@@ -86,6 +86,7 @@ BRK
       ;response .Network/read DEO2
       #0008 .cursor/x STZ2
       #001f .cursor/y STZ2
+      ;response ;line-breaks STA2
       ;response ;draw/text JSR2
       ( make sure no more line break addresses are stored )
       ;lb-pointer LDA2 #0001 ADD2 ;lb-pointer-max STA2
@@ -217,7 +218,7 @@ JMP2r
   ( only draw scrollbar starting from top of scroll box )
   .Mouse/y DEI2 #002a GTH2k ?{ SWP2 POP2 #0000 }
   POP2 DUP2 .scroll/top STZ2
-  .scroll/top LDZ2 #002a SUB2 .scroll/bottom LDZ2 ADD2 .scroll/bottom STZ2
+  #01cc .lines/blocks LDZ2 DIV2 .scroll/top LDZ2 ADD2 .scroll/bottom STZ2
   ;clear/screen JSR2
   ;draw/scrollbox JSR2
   ;draw/scrollbar JSR2
@@ -227,13 +228,13 @@ JMP2r
   #0008 .cursor/x STZ2
   #001f .cursor/y STZ2
   ( get the new top line index TODO: MAKE THIS WORK!!! )
-  .scroll/top LDZ2 .lines/total LDZ2 MUL2 #01cc DIV2 #0002 MUL2 DBG
+  .scroll/top LDZ2 #002a SUB2 .lines/total LDZ2 MUL2 #01cc DIV2 #0002 MUL2 DBG
   ( get addr for that line in response response=#385X )
   ;line-breaks ADD2 LDA2
   ;draw/text JSR2
   ( put the cursor back for typing in the search bar )
   .search-cursor/x LDZ2 .cursor/x STZ2
-  #001f .cursor/y STZ2
+  #0008 .cursor/y STZ2
 BRK
 
 @delete/key
@@ -285,27 +286,22 @@ JMP2r
 
 @draw/cursor
   ;clear/cursor JSR2
-
   ( update cursor position )
   .move-cursor/x LDZ2 .cursor/x STZ2
-
   ( send cursor position to screen )
   .cursor/x LDZ2 .Screen/x DEO2
   .cursor/y LDZ2 .Screen/y DEO2
-
   ( draw sprite with color 2 )
   ;cursor-icn .Screen/addr DEO2
   #0a .Screen/sprite DEO
 JMP2r
 
 @draw/newline
-  DBG
   ( store the point at which the line break occured )
-  ;lb-pointer LDA2 ;lb-pointer-max LDA2 DBG LTH2 ?{ #00 SWP2 DUP2 ;line-breaks ;lb-pointer LDA2 ADD2 DBG STA2 ;lb-pointer LDA2 INC2 INC2 ;lb-pointer STA2 SWP2 POP }
+  ;lb-pointer LDA2 ;lb-pointer-max LDA2 LTH2 ?{ #00 SWP2 DUP2 ;line-breaks ;lb-pointer LDA2 ADD2 STA2 ;lb-pointer LDA2 INC2 INC2 ;lb-pointer STA2 SWP2 POP .lines/total LDZ2 INC2 .lines/total STZ2 }
   ;clear/cursor JSR2
-  #0010 .cursor/y LDZ2 ADD2 .cursor/y STZ2 
+  #0010 .cursor/y LDZ2 ADD2 .cursor/y STZ2
   #0008 .cursor/x STZ2
-  .lines/total LDZ2 INC2 .lines/total STZ2
 JMP2r
 
 @draw/text ( text* -- )
@@ -921,6 +917,6 @@ JMP2r
 @buffer $1024
 @buffer-pointer $2
 @line-breaks $ff
-@lb-pointer $2
+@lb-pointer 0002
 @lb-pointer-max $2
 @response $ffff
