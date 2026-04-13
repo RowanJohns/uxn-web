@@ -84,7 +84,7 @@ BRK
 @load-file
     ;query ;buffer ;query/store JSR2
     ;query .File/name DEO2
-    #00ff .File/length DEO2
+    #ffff .File/length DEO2
     ;file/data .File/read DEO2
     .File/success DEI2 #0000 EQU2 ,&failed JCN
 
@@ -99,11 +99,11 @@ BRK
         ;failure .Network/write DEO2
         BRK
 
-@file
-    &data $ff
 
 @location "gemini://glossygem.net/ 00
 @success "Valid 20 "URL 20 "received. 0a
 @query "gemini/ $20
 @buffer $80
 @failure "Invalid 20 "URL 20 "received. 20 "This 20 "server 20 "accepts 20 "requests 20 "of 20 "the 20 "form 20 "gemini://glossygem.net/pagename 20 "00
+@file
+    &data $ffff
