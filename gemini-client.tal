@@ -13,6 +13,8 @@
 %EMIT { .Console/write DEO } ( character -- )
 ( print a newline )
 %NL { #0a EMIT } ( -- )
+( add CRLF )
+%CRLF { #0d0a }
 
 ( zero page )
 |0000
@@ -82,7 +84,7 @@ BRK
       #00 ;buffer ;buffer-pointer LDA2 ADD2 STA ( null terminate the request )
       ;buffer .Network/write DEO2
       ( Read response )
-      #0200 .Network/length DEO2
+      #ffff .Network/length DEO2
       ;response .Network/read DEO2
       #0008 .cursor/x STZ2
       #001f .cursor/y STZ2
@@ -266,8 +268,11 @@ BRK
 
 @type/url
   .Controller/key DEI
-  DUP #0d NEQ ?{ POP #01 .Network/state DEO } ( Search if enter is pressed )
+  DUP #0d NEQ ?{ POP ;buffer ;buffer-pointer LDA2 ADD2 CRLF STA2 #01 .Network/state DEO } ( Search if enter is pressed )
   DUP #08 NEQ ?{ ;delete/key JMP2 } ( Backspace )
+  ( only store printable chars )
+  DUP #1f GTH ?{ DBG BRK }
+  DUP #7f LTH ?{ DBG BRK }
   #00 ;char STA2
   ;char ;draw/text JSR2
   ;char LDA ;buffer-pointer LDA2 ;buffer ADD2 STA ( store char in buffer )
@@ -308,7 +313,7 @@ JMP2r
 	[ LIT2 15 -Screen/auto ] DEO
 	[ LIT2r 05 -Screen/sprite ]
 	&while
-		LDAk DUP ?{ POP POP2 POP2r JMP2r }
+		LDAk DUP DUP #18 DEO ?{ POP POP2 POP2r JMP2r }
     DUP #0a NEQ ?{ ;draw/newline JSR2 POP INC2 !&while } ( deal with NL )
     .cursor/x LDZ2 #02e5 LTH2 ?{ ;draw/newline JSR2 } ( check pos of cursor )
 		#0000 ROT
